@@ -130,7 +130,9 @@ def build_app(cfg: Config) -> App:
         user, raw = body["user"]["id"], body["actions"][0]["value"]
         if not authorised(user):
             client.chat_postEphemeral(
-                channel=body["channel"]["id"], user=user, text="Je staat niet op de goedkeurderslijst."
+                channel=body["channel"]["id"],
+                user=user,
+                text="Je staat niet op de goedkeurderslijst.",
             )
             return
         if not once(body, "reject", user):
@@ -158,7 +160,9 @@ def build_app(cfg: Config) -> App:
         user = body["user"]["id"]
         if not authorised(user):
             client.chat_postEphemeral(
-                channel=body["channel"]["id"], user=user, text="Je staat niet op de goedkeurderslijst."
+                channel=body["channel"]["id"],
+                user=user,
+                text="Je staat niet op de goedkeurderslijst.",
             )
             return
         raw = body["actions"][0]["value"]
