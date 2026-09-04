@@ -1,0 +1,22 @@
+# Deny everything, then allow back the few paths the image needs.
+#
+# This is an allow-list on purpose. A deny-list would have to be updated every
+# time someone adds a directory, and this repo's working directories hold
+# credential-grade material: `browser-profile/` is a LIVE corporate SSO session,
+# `traces/` and `artifacts/` are Playwright traces and screenshots of the
+# expense portal. Shipping any of them into a public GHCR layer would leak a
+# signed-in session to anyone who can `docker pull`.
+#
+# Add a new entry below only if the running container genuinely needs the file.
+
+*
+
+!src/
+!pyproject.toml
+!requirements.txt
+!README.md
+
+# ...minus junk that rides along inside the allowed paths.
+src/**/__pycache__/
+src/**/*.py[cod]
+src/**/*.egg-info/

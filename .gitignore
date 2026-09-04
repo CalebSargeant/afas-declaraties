@@ -216,3 +216,40 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ---------------------------------------------------------------------------
+# Authenticated-session artefacts. NEVER commit these.
+#
+# A saved browser profile is a replayable, MFA-satisfying corporate session.
+# Traces, HARs and screenshots of an authenticated AFAS session contain
+# salary-adjacent personal data. This repo is public.
+# ---------------------------------------------------------------------------
+browser-profile/
+storage_state.json
+auth.json
+traces/
+*.har
+*.trace.zip
+artifacts/
+e2e-artifacts/
+screenshots/
+
+# Local claim ledger (submission history, personal)
+ledger.db
+ledger.jsonl
+
+# Secrets
+.env
+secret.yaml
+!secret.yaml.example
+*.key
+*.pem
+*.crt
+*.log
+/tmp/
+*.tmp
+
+# Git worktrees created under .claude/ hold their own browser-profile/, traces/
+# and artifacts/ directories. .git/info/exclude covers this locally, but that
+# file is never committed, so a fresh clone would not inherit the protection.
+.claude/worktrees/

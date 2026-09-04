@@ -1,0 +1,36 @@
+site_name: AFAS Declaraties
+site_description: Automated monthly travel and working-from-home expense claims for AFAS InSite
+repo_url: https://github.com/CalebSargeant/afas-declaraties
+repo_name: CalebSargeant/afas-declaraties
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: deep purple
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: deep purple
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.top
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Architecture: architecture.md
+  - Setup & Deployment: setup.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - pymdownx.superfences
+  - pymdownx.details
+  - toc:
+      permalink: true

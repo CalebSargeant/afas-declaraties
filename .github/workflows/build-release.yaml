@@ -1,0 +1,52 @@
+name: Semantic Release
+
+# This workflow runs semantic-release which will:
+# 1. Analyze commits and determine version
+# 2. Create a GitHub release with proper tag
+# 3. Trigger container-image-release and chart-release via the new GitHub release
+# 4. Docker image and Helm chart are both tagged with that version
+#
+# Copied from the deskbird-booking / fortivpn-gateway siblings. The reusable
+# workflow is pinned by SHA (v1.0.29 is the newest tag that still exposes
+# semantic-release.yaml alongside docker-bake-ghcr.yaml; the two callers in this
+# repo must move together, so they share one pin).
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+      - 'LICENSE'
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        required: false
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+concurrency:
+  group: build-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  semantic-release:
+    name: Semantic Release
+    uses: calebsargeant/reusable-workflows/.github/workflows/semantic-release.yaml@0c3840625b6760212a3e74a54a1a37a2fe61813c # v1.0.29
+    with:
+      bump: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.bump || '' }}
+      working_directory: '.'
+    secrets:
+      SEMANTIC_RELEASE_APP_ID: ${{ secrets.SEMANTIC_RELEASE_APP_ID }}
+      SEMANTIC_RELEASE_APP_PRIVATE_KEY: ${{ secrets.SEMANTIC_RELEASE_APP_PRIVATE_KEY }}

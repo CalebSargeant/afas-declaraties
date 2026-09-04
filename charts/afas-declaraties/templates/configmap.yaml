@@ -1,0 +1,50 @@
+{{/*
+Non-secret runtime config.
+
+Deliberately NOT a Helm hook: this release has no hook Job that consumes it, so
+adding hook annotations would only make Helm delete and recreate it on every
+upgrade for no benefit.
+
+Nothing employer-identifying may appear here. The keys below are either
+universal (log level, timezone) or empty by default; their tenant-specific
+values arrive from the Secret, which envFrom lists second and which therefore
+wins on a duplicate key.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "afas.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "afas.labels" . | nindent 4 }}
+data:
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  TZ: {{ .Values.config.tz | quote }}
+  # "true" unless someone has deliberately decided otherwise. False means the
+  # build job files a real claim in AFAS InSite.
+  DRY_RUN: {{ .Values.config.dryRun | toString | lower | quote }}
+  HEADLESS: {{ .Values.config.headless | toString | lower | quote }}
+  # Under /tmp because the root filesystem is read-only.
+  BROWSER_PROFILE_DIR: {{ .Values.config.browserProfileDir | quote }}
+  {{- with .Values.config.bookingOrganisers }}
+  BOOKING_ORGANISERS: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.config.bookingSubjectPrefixes }}
+  BOOKING_SUBJECT_PREFIXES: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.config.excludedDates }}
+  EXCLUDED_DATES: {{ . | quote }}
+  {{- end }}
+  {{/*
+  Omitted rather than emitted empty when unset: an empty ConfigMap value is
+  still a value, and it would shadow nothing but read as "configured".
+  */}}
+  {{- with .Values.config.commutePagePath }}
+  COMMUTE_PAGE_PATH: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.config.homePagePath }}
+  HOME_PAGE_PATH: {{ . | quote }}
+  {{- end }}
+  {{- range $key, $value := .Values.config.extra }}
+  {{ $key }}: {{ $value | toString | quote }}
+  {{- end }}

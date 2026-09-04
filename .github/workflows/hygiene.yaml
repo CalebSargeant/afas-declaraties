@@ -1,0 +1,286 @@
+name: Hygiene
+
+# PUBLIC-REPO GATE.
+#
+# This repo is public. It automates expense claims against a corporate AFAS
+# InSite portal, so the interesting failure mode is not a leaked credential
+# (gitleaks covers that) - it is a leaked IDENTITY: which employer, which AFAS
+# tenant, which Entra directory, which Slack workspace, which OCI tenancy.
+# Any one of those turns an anonymous automation repo into a named one.
+#
+# The job below greps every TRACKED file and fails the build on a hit, printing
+# file:line and the rule name and NOTHING ELSE. The matched text is never
+# echoed, because for several of these rules the match IS the secret.
+#
+# Two exclusions, both deliberate:
+#   - this file itself (the patterns would match themselves)
+#   - .git (git ls-files never lists it; the filter is belt-and-braces for
+#     anyone running the same logic over a working tree with find)
+#
+# The employer's own name cannot live here in plaintext for the same reason, so
+# it is supplied out of band via the repository variable
+# HYGIENE_FORBIDDEN_STRINGS (newline-separated literals, "#" comments allowed).
+# A variable rather than a secret because repository variables are readable by
+# pull_request runs from forks, and this gate is worth the most exactly there.
+# Each entry is fed to ::add-mask:: before use so an accidental echo anywhere
+# later in the job is redacted by the runner.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # Weekly, so a value that lands via a path this workflow does not trigger on
+    # (a tag push, a branch protection bypass) is still caught within days.
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hygiene-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  identifiers:
+    name: No employer identifiers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Scan tracked files
+        shell: bash
+        env:
+          # Never interpolated into the script body - read from the environment
+          # so it cannot end up in a rendered command line or an error message.
+          #
+          # A SECRET, not a repository variable, and that distinction is the
+          # whole point. This workflow triggers on `pull_request`, which runs
+          # the workflow file *as it exists in the PR head*. A fork can rewrite
+          # this step to curl the value to an attacker-controlled host, and
+          # `vars` are readable from fork PRs while `secrets` are not. Handing
+          # the wordlist to fork-controlled code would leak precisely the
+          # strings this repository exists to keep out of public view --
+          # through the gate meant to protect them.
+          #
+          # The cost is that rule 7 cannot run on a fork PR: the list arrives
+          # empty and the step degrades to a warning (see the empty-list branch
+          # below). Push-to-main and the weekly cron run with the secret and
+          # remain authoritative, so nothing merges unscanned.
+          HYGIENE_FORBIDDEN_STRINGS: ${{ secrets.HYGIENE_FORBIDDEN_STRINGS }}
+        run: |
+          # NOT set -e: several greps legitimately exit 1 when they find nothing,
+          # and a "clean tree" must not read as a failed step.
+          set -uo pipefail
+
+          SELF='.github/workflows/hygiene.yaml'
+          TMP="${RUNNER_TEMP:-/tmp}"
+          FINDINGS="${TMP}/hygiene-findings.txt"
+          : >"${FINDINGS}"
+
+          note() { printf '%s:%s\t[%s]\n' "$1" "$2" "$3" >>"${FINDINGS}"; }
+
+          # ---------------------------------------------------------------
+          # Slack-id allowlist.
+          #
+          # The required pattern is \b[UCDGT][A-Z0-9]{8,}\b - the shape of a
+          # Slack workspace/channel/user/group id. It is broad on purpose and it
+          # is NOT weakened here. What it also matches is any ALL-CAPS word of
+          # nine or more letters starting U, C, D, G or T. Rather than relax the
+          # regex (which would let a real id through), pure-alphabetic tokens on
+          # this explicit list are skipped. Anything not listed still fails, so a
+          # new false positive forces a human decision in review instead of
+          # silently exempting a whole class.
+          #
+          # Note that SCREAMING_SNAKE_CASE env var names are already safe: "_"
+          # is a word character, so \b stops the match dead at the underscore.
+          # ---------------------------------------------------------------
+          ALLOW="${TMP}/slack-allow.txt"
+          cat >"${ALLOW}" <<'WORDS'
+          CANCELLED
+          CHANGELOG
+          CLASSIFIED
+          CLUSTERSECRETSTORE
+          COMPLETED
+          CONCURRENCY
+          CONFIGMAP
+          CONFIGURATION
+          CONFIRMED
+          CONNECTION
+          CONSTRAINT
+          CONTAINER
+          CONTAINERS
+          CONTRIBUTING
+          COPYRIGHT
+          CREDENTIAL
+          CREDENTIALS
+          CRONJOBS
+          DATABASES
+          DECLARATIES
+          DEPENDENCIES
+          DEPLOYMENT
+          DEPRECATED
+          DESCRIPTION
+          DEVELOPMENT
+          DIFFERENT
+          DIRECTORY
+          DOCKERFILE
+          DOCUMENTATION
+          GENERATED
+          GITIGNORE
+          GUARANTEE
+          TEMPLATES
+          TERRAFORM
+          THUISWERK
+          TIMESTAMP
+          TOLERATIONS
+          TRANSPORT
+          TRUNCATED
+          UNCHANGED
+          UNDEFINED
+          UNLIMITED
+          UPPERCASE
+          WORDS
+
+          # ---------------------------------------------------------------
+          # Employer wordlist from the repo variable. Blank lines are stripped
+          # before grep sees them: a single empty pattern in a -f file matches
+          # EVERY line of EVERY file, which would fail the build with thousands
+          # of meaningless hits.
+          # ---------------------------------------------------------------
+          WORDS_FILE="${TMP}/forbidden.txt"
+          printf '%s\n' "${HYGIENE_FORBIDDEN_STRINGS:-}" \
+            | sed 's/[[:space:]]*$//' \
+            | grep -v '^[[:space:]]*#' \
+            | grep -v '^[[:space:]]*$' >"${WORDS_FILE}"
+
+          if [ -s "${WORDS_FILE}" ]; then
+            while IFS= read -r w; do
+              printf '::add-mask::%s\n' "$w"
+            done <"${WORDS_FILE}"
+            echo "employer wordlist: $(wc -l <"${WORDS_FILE}" | tr -d ' ') entries loaded"
+          else
+            echo "::warning::HYGIENE_FORBIDDEN_STRINGS is empty or unset - the" \
+                 "employer-name rule did not run. The structural rules below did."
+          fi
+
+          # ---------------------------------------------------------------
+          # File-level rules. Credential-grade working directories must never be
+          # tracked: browser-profile/ is a replayable MFA-satisfied corporate
+          # session, traces/*.zip is a Playwright trace with full DOM, headers
+          # and cookies, artifacts/ is screenshots of the employer's portal.
+          # ---------------------------------------------------------------
+          while IFS= read -r f; do
+            note "$f" 0 tracked-credential-artifact
+          done < <(git ls-files | grep -E '^(browser-profile|traces|artifacts|e2e-artifacts)/|\.(ics|har|zip|pma|pem)$')
+
+          # ---------------------------------------------------------------
+          # Content rules, one pass per tracked text file.
+          # ---------------------------------------------------------------
+          UUID='[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
+          scanned=0
+
+          while IFS= read -r -d '' f; do
+            case "$f" in
+              "${SELF}"|.git/*) continue ;;
+            esac
+            [ -f "$f" ] || continue
+            # -I: skip binaries. A PNG matching a hex pattern is noise.
+            grep -Iq '' "$f" 2>/dev/null || continue
+            scanned=$((scanned + 1))
+
+            # 1. AFAS tenant number + host, e.g. <5 digits>.afasinsite.nl.
+            #    The digits are the administration id; they name the employer to
+            #    anyone who can query AFAS.
+            while IFS= read -r n; do
+              note "$f" "$n" afas-tenant-host
+            done < <(grep -nEIi '[0-9]{5}\.afasinsite\.nl' "$f" | cut -d: -f1)
+
+            # 2. Any *.afasinsite.nl host. Superset of rule 1, kept separate so
+            #    a non-numeric tenant slug is still caught.
+            while IFS= read -r n; do
+              note "$f" "$n" afasinsite-host
+            done < <(grep -nEIi '[a-z0-9][a-z0-9-]*\.afasinsite\.nl' "$f" | cut -d: -f1)
+
+            # 2b. Bare 32-character hex. AFAS InSite webpart ids are per-tenant and
+
+            #     appear unhyphenated, so rule 3's UUID pattern misses them entirely
+
+            #     and they are not employer-resolvable but are still tenant-specific.
+
+            #     Pinned action SHAs are 40 hex, so \b...{32}\b does not catch those.
+
+            while IFS= read -r n; do
+
+              note "$f" "$n" tenant-webpart-id
+
+            done < <(grep -nEI '\b[0-9a-fA-F]{32}\b' "$f" | cut -d: -f1)
+
+
+            # 3. Entra tenant GUID: a UUID within two lines of tenant /
+            #    authorize / login.microsoftonline. Plain UUIDs are everywhere
+            #    (k8s uids, test fixtures); it is the context that makes one a
+            #    directory identifier.
+            while IFS= read -r n; do
+              lo=$((n - 2)); [ "$lo" -lt 1 ] && lo=1
+              hi=$((n + 2))
+              if sed -n "${lo},${hi}p" "$f" \
+                   | grep -qiE 'tenant|authorize|login\.microsoftonline'; then
+                note "$f" "$n" entra-tenant-guid
+              fi
+            done < <(grep -nEI "${UUID}" "$f" | cut -d: -f1)
+
+            # 4. Slack workspace / channel / user / group ids.
+            while IFS= read -r hit; do
+              n="${hit%%:*}"
+              tok="${hit#*:}"
+              if printf '%s' "$tok" | grep -qE '^[A-Z]+$' \
+                 && grep -qxF "$tok" "${ALLOW}"; then
+                continue
+              fi
+              note "$f" "$n" slack-id
+            done < <(grep -noEI '\b[UCDGT][A-Z0-9]{8,}\b' "$f")
+
+            # 5. OCI OCIDs - tenancy, user, compartment, vault. Each one names
+            #    the account.
+            while IFS= read -r n; do
+              note "$f" "$n" oci-ocid
+            done < <(grep -nFI 'ocid1.' "$f" | cut -d: -f1)
+
+            # 6. Live credential prefixes. Cheap, and a hit here is an
+            #    incident, not a style violation. Each prefix requires the
+            #    character class a REAL token continues with, so the documented
+            #    `xoxb-<PLACEHOLDER>` in README.md stays legal while an actual
+            #    xoxb-1234... does not.
+            while IFS= read -r n; do
+              note "$f" "$n" credential-prefix
+            done < <(grep -nEI '(xox[bpsare]-[0-9]|xapp-[0-9]-|ops_[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)' "$f" | cut -d: -f1)
+
+            # 7. Employer wordlist. Output is piped straight into cut so the
+            #    matched line never reaches a terminal, a log or a variable.
+            if [ -s "${WORDS_FILE}" ]; then
+              while IFS= read -r n; do
+                note "$f" "$n" employer-wordlist
+              done < <(grep -nIiFf "${WORDS_FILE}" "$f" | cut -d: -f1)
+            fi
+          done < <(git ls-files -z)
+
+          echo "scanned ${scanned} tracked text files"
+
+          if [ -s "${FINDINGS}" ]; then
+            echo
+            echo "::error::Employer-identifying content found in tracked files."
+            echo "The matched text is deliberately NOT printed. Open each"
+            echo "file:line below and remove or placeholder the value."
+            echo
+            # Dedupe on the whole record first (a file:line can legitimately
+            # trip two rules and both are worth seeing), then order by path and
+            # numeric line so the list reads top-to-bottom through each file.
+            sort -u "${FINDINGS}" | sort -t: -k1,1 -k2,2n
+            echo
+            echo "count: $(sort -u "${FINDINGS}" | wc -l | tr -d ' ')"
+            exit 1
+          fi
+
+          echo "clean: no employer identifiers in tracked files"

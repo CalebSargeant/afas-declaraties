@@ -1,0 +1,38 @@
+apiVersion: v2
+name: afas-declaraties
+description: Classify work days from the calendar and file AFAS InSite expense claims, with a Slack approval gate
+type: application
+
+# version is the CHART version, appVersion is the APPLICATION version. They are
+# bumped independently: a chart-only fix (a probe tweak, a new value) must not
+# imply the application changed, and an image bump must not require a chart
+# change to be deployable.
+#
+# appVersion doubles as the default image tag (see afas.image in _helpers.tpl),
+# so it must name a tag the release workflow actually publishes. That workflow
+# tags images `v<version>`, hence the leading "v" — unconventional for
+# appVersion and deliberate. Without it every pod lands in ImagePullBackOff and
+# the symptom looks like a registry credentials problem rather than a typo.
+# _guards.tpl refuses to render a chart whose appVersion loses the "v".
+version: 0.1.0
+appVersion: "v0.1.0"
+
+home: https://github.com/CalebSargeant/afas-declaraties
+sources:
+  - https://github.com/CalebSargeant/afas-declaraties
+
+keywords:
+  - afas
+  - insite
+  - expenses
+  - playwright
+  - slack
+
+maintainers:
+  - name: Caleb Sargeant
+    url: https://github.com/CalebSargeant
+
+annotations:
+  artifacthub.io/license: MIT
+  artifacthub.io/category: office-business
+  artifacthub.io/prerelease: "true"

@@ -1,0 +1,143 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "afas-declaraties"
+version = "1.0.0"
+description = "Classify work days from the calendar, get them approved in Slack, and file the resulting expense claims in the AFAS portal."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Caleb Sargeant" }]
+keywords = ["expenses", "playwright", "slack", "kubernetes"]
+classifiers = [
+    "Private :: Do Not Upload",
+    "Programming Language :: Python :: 3.12",
+]
+
+# Loose ranges for humans and for `pip install -e .` on a laptop.
+# The container installs requirements.txt, which pins every one of these plus
+# their transitives. requirements.txt is the authority for what ships.
+dependencies = [
+    "playwright>=1.62,<2",     # drives the portal and Outlook Web; bundles Chromium 151
+    "psycopg[binary]>=3.3,<4", # CNPG Postgres; binary so the image needs no libpq/build deps
+    "slack-bolt>=1.30,<2",     # Socket Mode app: digest, approve/reject buttons, override modal
+    "websockets>=17,<18",      # the transport slack_sdk's Socket Mode client runs on
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9",
+    "ruff>=0.14",
+]
+
+[project.urls]
+Homepage = "https://github.com/CalebSargeant/afas-declaraties"
+Source = "https://github.com/CalebSargeant/afas-declaraties"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q --strict-markers --strict-config"
+filterwarnings = ["error"]
+
+# ---------------------------------------------------------------------------
+# ruff
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests", "scripts"]
+extend-exclude = [".venv", "artifacts", "traces", "browser-profile"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors (E402 catches the import-after-sys.path dance in scripts/)
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # import sorting
+    "B",   # bugbear
+    "UP",  # pyupgrade
+    "C4",  # comprehensions
+]
+ignore = [
+    # `line-length` above still drives `ruff format`; E501 on top of it just
+    # nags about the odd 102-char string that wrapping would make less
+    # readable. The sibling repos do not enforce it either (ruff's default
+    # select omits E501 for exactly this reason).
+    "E501",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# The dev scripts insert the repo on sys.path before importing the package.
+"scripts/*.py" = ["E402"]
+
+# ---------------------------------------------------------------------------
+# python-semantic-release
+#
+# Copied from the sibling repos (calebsargeant/deskbird-booking,
+# calebsargeant/fortivpn-gateway) so release behaviour is identical across the
+# estate. Two deliberate differences:
+#   * version_toml points at [project].version rather than a bare `version` key
+#     under [tool.semantic_release]. This repo has real [project] metadata, so
+#     there is exactly one version string and it cannot drift from the wheel.
+#   * no `template_dir` -- there is no templates/ directory here, and pointing
+#     at a missing one fails the release job.
+# ---------------------------------------------------------------------------
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+version_variables = []
+build_command = ""
+major_on_zero = true
+tag_format = "v{version}"
+upload_to_vcs_release = false
+
+[tool.semantic_release.branches.main]
+match = "main"
+prerelease = false
+
+[tool.semantic_release.changelog]
+changelog_file = "CHANGELOG.md"
+exclude_commit_patterns = []
+
+[tool.semantic_release.changelog.environment]
+block_start_string = "{%"
+block_end_string = "%}"
+variable_start_string = "{{"
+variable_end_string = "}}"
+comment_start_string = "{#"
+comment_end_string = "#}"
+trim_blocks = false
+lstrip_blocks = false
+newline_sequence = "\n"
+keep_trailing_newline = false
+extensions = []
+autoescape = true
+
+[tool.semantic_release.commit_parser_options]
+allowed_tags = ["feat", "fix", "docs", "style", "refactor", "perf", "test", "build", "ci", "chore", "revert"]
+minor_tags = ["feat"]
+patch_tags = ["fix", "perf"]
+
+[tool.semantic_release.remote]
+name = "origin"
+type = "github"
+ignore_token_for_push = false
+
+[tool.semantic_release.remote.token]
+env = "GH_TOKEN"
+
+[tool.semantic_release.commit_author]
+env = "GIT_COMMIT_AUTHOR"
+default = "github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
+
+[tool.semantic_release.publish]
+dist_glob_patterns = ["dist/*"]
+upload_to_vcs_release = false
