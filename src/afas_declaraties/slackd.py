@@ -128,7 +128,12 @@ def build_app(cfg: Config) -> App:
         ack()
         _touch_heartbeat()
         user, raw = body["user"]["id"], body["actions"][0]["value"]
-        if not authorised(user) or not once(body, "reject", user):
+        if not authorised(user):
+            client.chat_postEphemeral(
+                channel=body["channel"]["id"], user=user, text="Je staat niet op de goedkeurderslijst."
+            )
+            return
+        if not once(body, "reject", user):
             return
         year, period, claim_type, _ = parse_decision_value(raw)
         with store.connect(cfg.database_url) as conn:
@@ -150,6 +155,12 @@ def build_app(cfg: Config) -> App:
         """
         ack()
         _touch_heartbeat()
+        user = body["user"]["id"]
+        if not authorised(user):
+            client.chat_postEphemeral(
+                channel=body["channel"]["id"], user=user, text="Je staat niet op de goedkeurderslijst."
+            )
+            return
         raw = body["actions"][0]["value"]
         with store.connect(cfg.database_url) as conn:
             if raw.startswith(f"week{SEP}"):
