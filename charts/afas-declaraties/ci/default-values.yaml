@@ -1,0 +1,64 @@
+# Values CI renders the chart with. NOT an example deployment: the point is to
+# exercise every template and satisfy every guard, so nothing here is a real
+# hostname, a real vault entry or a real Slack id.
+#
+# The vault entry NAMES below are safe to publish — names are not values — but
+# they are still placeholders here rather than the estate's actual keys.
+externalSecret:
+  enabled: true
+  secretStore:
+    name: example-secret-store
+    kind: ClusterSecretStore
+  data:
+    DATABASE_URL: {key: example-afas-database-url}
+    INSITE_HOST: {key: example-afas-insite-host}
+    OP_SERVICE_ACCOUNT_TOKEN: {key: example-afas-op-service-account-token}
+    OP_ITEM_NAME: {key: example-afas-op-item-name}
+    OP_VAULT: {key: example-afas-op-vault}
+    SLACK_BOT_TOKEN: {key: example-afas-slack-bot-token}
+    SLACK_APP_TOKEN: {key: example-afas-slack-app-token}
+    SLACK_CHANNEL_ID: {key: example-afas-slack-channel-id}
+    SLACK_APPROVER_IDS: {key: example-afas-slack-approver-ids}
+
+config:
+  # Stays "true" even in CI. A rendered manifest is never applied, but a values
+  # file in git that says "false" is one copy-paste away from being one that is.
+  dryRun: true
+  logLevel: debug
+  excludedDates: "2026-01-01,2026-04-27"
+  extra:
+    EXAMPLE_EXTRA_KEY: example-value
+
+# Exercise the placement passthroughs, which are empty in values.yaml.
+nodeSelector:
+  kubernetes.io/arch: arm64
+tolerations:
+  - key: example.com/dedicated
+    operator: Equal
+    value: browser
+    effect: NoSchedule
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/os
+              operator: In
+              values: [linux]
+
+priorityClassName: low
+podAnnotations:
+  example.com/rendered-by: ci
+podLabels:
+  example.com/lane: ci
+
+# Exercise the append-only env paths.
+extraEnv:
+  - name: EXAMPLE_EXTRA_ENV
+    value: "1"
+extraVolumes:
+  - name: example-extra
+    emptyDir: {}
+extraVolumeMounts:
+  - name: example-extra
+    mountPath: /mnt/example

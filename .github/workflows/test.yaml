@@ -1,0 +1,76 @@
+name: Test
+
+# ruff + pytest on every PR and on every non-main branch push, plus a helm lint
+# of the in-repo chart once it exists.
+#
+# Pinned to GitHub-hosted runners, not vars.SELFHOSTED_GITHUB_RUNNER: this repo
+# is public, and a self-hosted runner picking up a fork PR would execute
+# untrusted code on the estate's own hardware. Public repos get hosted minutes
+# for free, so there is nothing to save here.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches-ignore: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A branch with an open PR fires both triggers; supersede the older run.
+concurrency:
+  group: test-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: ruff + pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      # Playwright's browser download is NOT installed here on purpose. Nothing
+      # in tests/ may drive a real browser: a test that logs in would be
+      # attempting a corporate SSO login from CI, and a failed attempt risks
+      # locking the account. Browser paths are exercised against recorded
+      # fixtures only.
+
+      - name: Ruff lint
+        run: ruff check src tests
+
+      - name: Ruff format
+        run: ruff format --check src tests
+
+      - name: Pytest
+        run: pytest -q
+
+  chart:
+    name: helm lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+
+      - name: Helm lint
+        run: |
+          set -euo pipefail
+          # A missing chart is a failure, not a skip: charts/afas-declaraties is
+          # a fixed path that the release workflow packages by name, so if it
+          # moves, the chart stops publishing silently.
+          test -f charts/afas-declaraties/Chart.yaml
+          values=""
+          if [ -f charts/afas-declaraties/ci/default-values.yaml ]; then
+            values="--values charts/afas-declaraties/ci/default-values.yaml"
+          fi
+          # shellcheck disable=SC2086
+          helm lint charts/afas-declaraties ${values}

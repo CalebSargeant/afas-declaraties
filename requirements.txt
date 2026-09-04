@@ -1,0 +1,26 @@
+# Fully pinned runtime dependency set for the container image.
+#
+# Resolved against python:3.12-slim on linux/arm64 (the OCI cloud tier). Every
+# transitive is pinned too: a browser-driving job that logs into corporate SSO
+# must not change behaviour because a transitive floated. Retrying a failed
+# login risks an account lockout, so the image is boring on purpose.
+#
+# Loose ranges for humans live in pyproject.toml [project.dependencies];
+# this file is what the image actually installs.
+#
+# To refresh:
+#   docker run --rm --platform linux/arm64 python:3.12-slim sh -c \
+#     'pip install -q playwright "psycopg[binary]" slack_bolt websockets && pip freeze'
+
+# --- direct ---
+playwright==1.62.0            # bundles Chromium 151.0.7922.34
+psycopg[binary]==3.3.5
+slack-bolt==1.30.0
+websockets==17.1
+
+# --- transitive, pinned ---
+greenlet==3.5.5               # playwright sync API
+psycopg-binary==3.3.5         # the [binary] extra of psycopg
+pyee==13.0.1                  # playwright
+slack-sdk==3.44.1             # slack_bolt
+typing_extensions==4.16.0     # psycopg, pyee

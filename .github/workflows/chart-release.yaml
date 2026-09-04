@@ -1,0 +1,80 @@
+name: Chart release
+
+# The chart lives in this repo at charts/afas-declaraties and is published as an
+# OCI artifact to the same registry as the image, so there is no chart
+# repository, no index.yaml and no gh-pages branch to keep alive. Flux's
+# HelmRelease pulls it straight from GHCR.
+#
+# Shape copied from magmamoose/finance .github/workflows/chart-release.yaml.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Chart version to publish (defaults to the ref name minus its leading v)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: chart-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+
+      - name: Resolve version
+        id: meta
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${INPUT_VERSION:-${REF_NAME#v}}"
+          # Helm rejects a leading v in a chart version; a release tag always has
+          # one, so stripping it is not optional.
+          version="${version#v}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Publishing chart version ${version}"
+
+      - name: Log in to GHCR
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REGISTRY_USER: ${{ github.actor }}
+        run: echo "${REGISTRY_TOKEN}" | helm registry login ghcr.io --username "${REGISTRY_USER}" --password-stdin
+
+      - name: Package and push
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          # Chart version and appVersion move together: the chart defaults the
+          # image tag to .Chart.AppVersion, and the image is tagged from the
+          # release tag_name, which KEEPS its leading v. Stripping both would
+          # make every pod ask for ghcr.io/calebsargeant/afas-declaraties:0.1.0,
+          # which does not exist -> ErrImagePull (not unauthorized, which is the
+          # tell that it is a tag mismatch and not the pull secret).
+          #
+          # Registry paths are case-sensitive and must be lower case; GitHub
+          # owner names are not.
+          repo="oci://ghcr.io/$(echo "${OWNER}" | tr '[:upper:]' '[:lower:]')/charts"
+          helm package charts/afas-declaraties \
+            --version "${VERSION}" \
+            --app-version "v${VERSION}" \
+            --destination dist
+          helm push "dist/afas-declaraties-${VERSION}.tgz" "${repo}"
+
+      - name: Log out
+        if: always()
+        run: helm registry logout ghcr.io || true

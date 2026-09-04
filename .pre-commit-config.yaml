@@ -1,0 +1,73 @@
+# Fast local gate. It deliberately does NOT duplicate the identifier regexes in
+# .github/workflows/hygiene.yaml: those patterns would match themselves if they
+# lived in a second tracked file, and a rule that has to be excluded from its
+# own scan is a rule nobody trusts. Hygiene owns identifier detection; this file
+# owns the things worth catching before a commit exists at all.
+#
+# Install once:  pre-commit install && pre-commit install --hook-type commit-msg
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+        # Helm templates are Go text/template, not YAML, until they are rendered.
+        exclude: ^charts/.*/templates/
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=512]
+      - id: detect-private-key
+      - id: check-executables-have-shebangs
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.12.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.1
+    hooks:
+      - id: gitleaks
+
+  # Enforces the estate convention: every `uses:` pinned to a full commit SHA
+  # with a trailing "# vX.Y.Z" comment.
+  - repo: https://github.com/calebsargeant/pre-commit-hooks
+    rev: v1.4.4
+    hooks:
+      - id: actions-pin-sha
+
+  - repo: local
+    hooks:
+      # These directories exist in the working tree and are gitignored, but an
+      # `git add -f` or a rewritten .gitignore would ship them. browser-profile/
+      # is a replayable, MFA-satisfied corporate session - a credential, not a
+      # cache. traces/*.zip is a Playwright trace carrying full DOM, request
+      # headers and cookies. artifacts/ is screenshots of the employer's portal.
+      # The same paths are re-checked in CI against `git ls-files`.
+      - id: block-credential-artifacts
+        name: refuse to commit credential-grade artifacts
+        language: fail
+        entry: >-
+          This path must never be committed. browser-profile/, traces/ and
+          artifacts/ hold a live corporate session, full request traces and
+          portal screenshots. If you genuinely need a fixture, hand-sanitise it
+          and put it under tests/fixtures/.
+        files: '^(browser-profile|traces|artifacts|e2e-artifacts)/|\.(ics|har|pma)$'
+
+      # .env is where a real INSITE_HOST and a real service-account token end up
+      # during local development. Only .env.example may be tracked.
+      - id: block-dotenv
+        name: refuse to commit .env
+        language: fail
+        entry: 'Only .env.example may be committed. Real values live in OCI Vault.'
+        files: '(^|/)\.env($|\.)'
+        exclude: '(^|/)\.env\.example$'

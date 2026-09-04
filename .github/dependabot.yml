@@ -1,0 +1,55 @@
+version: 2
+
+updates:
+  # Actions are SHA-pinned with a trailing "# vX.Y.Z" comment. Dependabot
+  # understands that convention and rewrites both the SHA and the comment, so
+  # pinning does not mean going stale.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions-version:
+        applies-to: version-updates
+        patterns: ["*"]
+      actions-security:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  # pyproject.toml + requirements.txt both live at the root.
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      python-version:
+        applies-to: version-updates
+        patterns: ["*"]
+        # Playwright is excluded from the batch on purpose: its Python package
+        # and its bundled browser build are versioned together, and a minor bump
+        # can change selector or navigation behaviour against the portal. It
+        # gets its own PR so a regression is bisectable to one commit.
+        exclude-patterns: ["playwright"]
+      python-security:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  # Base image in the root Dockerfile.
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      docker-version:
+        applies-to: version-updates
+        patterns: ["*"]
+      docker-security:
+        applies-to: security-updates
+        patterns: ["*"]

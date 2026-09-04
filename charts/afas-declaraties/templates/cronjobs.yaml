@@ -1,0 +1,114 @@
+{{/*
+One template, one range over .Values.jobs. Three CronJobs that differ only by
+schedule, entrypoint and whether they drive a browser; three near-identical
+templates would drift, and the drift would be invisible until the night the
+odd one out ran without its /dev/shm.
+*/}}
+{{- $root := . }}
+{{- range $name, $job := .Values.jobs }}
+{{- if $job.enabled }}
+---
+# kics-scan disable=caa3479d-885d-4882-9aac-95e5e78ef5c2,7c81d34c-8e5a-402b-9798-9f442630e678,8b36775e-183d-4d46-b0f7-96a6f34a723f
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "afas.fullname" $root }}-{{ $name }}
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "afas.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  schedule: {{ $job.schedule | quote }}
+  {{- with $job.timeZone }}
+  # Named zone rather than UTC arithmetic: "the 28th at 06:00" has to stay
+  # 06:00 across the March and October DST changes, and a claim filed an hour
+  # into the next day lands in the wrong period.
+  timeZone: {{ . | quote }}
+  {{- end }}
+  # Two runs against one corporate SSO login is how an account gets locked, not
+  # how the work goes faster.
+  concurrencyPolicy: {{ $job.concurrencyPolicy }}
+  # If the controller was down longer than this, skip the missed run instead of
+  # stampeding a backlog of browser sessions through the portal on recovery.
+  startingDeadlineSeconds: {{ $job.startingDeadlineSeconds }}
+  successfulJobsHistoryLimit: {{ $job.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ $job.failedJobsHistoryLimit }}
+  jobTemplate:
+    metadata:
+      labels:
+        {{- include "afas.labels" $root | nindent 8 }}
+        app.kubernetes.io/component: {{ $name }}
+    spec:
+      # 0 for every browser job, enforced by _guards.tpl. A retry re-drives the
+      # Entra login; repeated failed logins lock the account. The next
+      # scheduled run is the retry.
+      backoffLimit: {{ $job.backoffLimit }}
+      # A hard stop, so a wedged browser cannot hold its slot until the next
+      # run collides with it.
+      activeDeadlineSeconds: {{ $job.activeDeadlineSeconds }}
+      template:
+        metadata:
+          annotations:
+            checksum/config: {{ include (print $root.Template.BasePath "/configmap.yaml") $root | sha256sum }}
+            {{- with $root.Values.podAnnotations }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          labels:
+            {{- include "afas.selectorLabels" $root | nindent 12 }}
+            app.kubernetes.io/component: {{ $name }}
+            {{- with $root.Values.podLabels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+        spec:
+          restartPolicy: Never
+          {{- with $root.Values.priorityClassName }}
+          priorityClassName: {{ . }}
+          {{- end }}
+          {{- with $root.Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          serviceAccountName: {{ include "afas.serviceAccountName" $root }}
+          automountServiceAccountToken: {{ $root.Values.automountServiceAccountToken }}
+          enableServiceLinks: {{ $root.Values.enableServiceLinks }}
+          securityContext:
+            {{- toYaml $root.Values.podSecurityContext | nindent 12 }}
+          containers:
+            - name: {{ $name }}
+              image: {{ include "afas.image" $root }}
+              imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+              securityContext:
+                {{- toYaml $root.Values.securityContext | nindent 16 }}
+              command:
+                {{- toYaml $job.command | nindent 16 }}
+              {{- with $job.args }}
+              args:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+              envFrom:
+                {{- include "afas.envFrom" $root | nindent 16 }}
+              {{- $env := include "afas.env" $root | trim }}
+              {{- if $env }}
+              env:
+                {{- $env | nindent 16 }}
+              {{- end }}
+              resources:
+                {{- toYaml $job.resources | nindent 16 }}
+              volumeMounts:
+                {{- include "afas.volumeMounts" (dict "root" $root "browser" $job.browser) | nindent 16 }}
+          volumes:
+            {{- include "afas.volumes" (dict "root" $root "browser" $job.browser) | nindent 12 }}
+          {{- with $root.Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $root.Values.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $root.Values.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}
+{{- end }}

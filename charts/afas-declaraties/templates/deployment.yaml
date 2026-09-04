@@ -1,0 +1,113 @@
+{{- if .Values.slackd.enabled }}
+{{/*
+slackd — the Slack Socket Mode listener.
+
+No Service and no Ingress by design: Socket Mode opens an outbound WebSocket,
+so there is nothing to route to and nothing to expose. That also removes the
+Ingress, the tunnel rule, the DNS record and the signing secret that an HTTP
+Slack app would need.
+*/}}
+# kics-scan disable=caa3479d-885d-4882-9aac-95e5e78ef5c2,7c81d34c-8e5a-402b-9798-9f442630e678,8b36775e-183d-4d46-b0f7-96a6f34a723f
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "afas.fullname" . }}-slackd
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "afas.labels" . | nindent 4 }}
+    app.kubernetes.io/component: slackd
+spec:
+  # Hard-coded, not a value. Slack permits several concurrent sockets per app
+  # but delivers each event to exactly ONE of them, load-balanced. A second
+  # replica does not add capacity or redundancy; it silently swallows half the
+  # approval clicks, and the half that vanish look like Slack being flaky.
+  replicas: 1
+  strategy:
+    # Recreate, so the old pod's socket is gone before the new one dials. A
+    # RollingUpdate would briefly run two sockets and split the event stream at
+    # exactly the moment someone is clicking Approve.
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "afas.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: slackd
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "afas.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: slackd
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      terminationGracePeriodSeconds: {{ .Values.slackd.terminationGracePeriodSeconds }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "afas.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.automountServiceAccountToken }}
+      enableServiceLinks: {{ .Values.enableServiceLinks }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: slackd
+          image: {{ include "afas.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          command:
+            - python
+            - -m
+            - afas_declaraties.cli
+          args:
+            - slackd
+          envFrom:
+            {{- include "afas.envFrom" . | nindent 12 }}
+          {{- $env := include "afas.env" . | trim }}
+          {{- if $env }}
+          env:
+            {{- $env | nindent 12 }}
+          {{- end }}
+          # No ports: nothing listens. slackd writes decisions to Postgres and
+          # the build CronJob does the browser work, so this process can never
+          # submit a claim on its own.
+          livenessProbe:
+            {{- include "afas.heartbeatCheck" . | nindent 12 }}
+            initialDelaySeconds: {{ .Values.slackd.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.slackd.livenessProbe.periodSeconds }}
+            failureThreshold: {{ .Values.slackd.livenessProbe.failureThreshold }}
+          readinessProbe:
+            {{- include "afas.heartbeatCheck" . | nindent 12 }}
+            initialDelaySeconds: {{ .Values.slackd.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.slackd.readinessProbe.periodSeconds }}
+            failureThreshold: {{ .Values.slackd.readinessProbe.failureThreshold }}
+          resources:
+            {{- toYaml .Values.slackd.resources | nindent 12 }}
+          volumeMounts:
+            # /tmp only. slackd never launches Chromium, so it gets no
+            # /dev/shm — the heartbeat file is the only thing it writes.
+            {{- include "afas.volumeMounts" (dict "root" . "browser" false) | nindent 12 }}
+      volumes:
+        {{- include "afas.volumes" (dict "root" . "browser" false) | nindent 8 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

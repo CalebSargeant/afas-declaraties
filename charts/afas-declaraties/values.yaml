@@ -1,0 +1,324 @@
+# afas-declaraties
+#
+# One image, four workloads: three CronJobs (classify, digest, build) and a
+# single-replica Deployment (slackd) that holds the Slack Socket Mode
+# connection. They differ only by entrypoint, which is why the commands live
+# here rather than in four Dockerfiles.
+#
+# THIS FILE IS PUBLIC. Nothing employer-identifying belongs in it, or in any
+# values file that ends up in a git repository: not the portal hostname, not a
+# Slack channel or user id, not a 1Password vault name, not a database DSN.
+# Every one of those arrives at runtime from OCI Vault through the
+# ExternalSecret below, keyed by vault entry NAME (names are safe to publish,
+# values are not). templates/_guards.tpl refuses to render if a required one
+# has no declared source.
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: ghcr.io/calebsargeant/afas-declaraties
+  # Empty on purpose: the templates fall back to .Chart.AppVersion, so image
+  # automation can own this one field without touching the chart version.
+  tag: ""
+  # A sha256:… digest pins immutably and wins over `tag`. Prefer it in
+  # production — tags are mutable, digests are not.
+  digest: ""
+  pullPolicy: IfNotPresent
+
+# The GHCR package is public, so no pull secret is needed. Left here for a
+# consumer who republishes the image privately.
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# Nothing in this release talks to the Kubernetes API. Projecting a token into
+# a pod that drives a browser over the public internet only widens the blast
+# radius of a container escape.
+automountServiceAccountToken: false
+
+# There is no Service in this release, so the injected *_SERVICE_HOST env vars
+# would be noise at best.
+enableServiceLinks: false
+
+podAnnotations: {}
+podLabels: {}
+priorityClassName: ""
+
+# uid/gid 10001 matches the non-root USER baked into the image.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+# The root filesystem is read-only, so everything written has to be an explicit
+# volume: /tmp for Chromium's profile and Playwright's failure artifacts, and
+# /dev/shm because Chromium crashes on the default 64 MB.
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# ---------------------------------------------------------------------------
+# Non-secret configuration -> ConfigMap
+#
+# Anything identifying is absent by design and comes from externalSecret.data.
+# envFrom lists the ConfigMap first and the Secret second, so a key present in
+# both resolves to the Secret's value.
+# ---------------------------------------------------------------------------
+config:
+  logLevel: info
+  tz: Europe/Amsterdam
+
+  # DRY_RUN gates the path that spends real money: with it false, `build`
+  # actually submits a verzameldeclaratie in AFAS InSite. It defaults to "true"
+  # here and is flipped deliberately, per environment, by whoever owns the
+  # deployment. A chart default that files expense claims on install would be
+  # indefensible.
+  dryRun: true
+
+  headless: true
+
+  # Chromium's user-data dir. Must sit under a writable volume: the root
+  # filesystem is read-only.
+  browserProfileDir: /tmp/browser-profile
+
+  # Calendar entries that count as a booked office day. Left empty because the
+  # organiser name and subject prefix are tenant-specific; supply them through
+  # externalSecret.data (BOOKING_ORGANISERS, BOOKING_SUBJECT_PREFIXES) or here
+  # if they are genuinely not identifying in your tenant.
+  bookingOrganisers: ""
+  bookingSubjectPrefixes: ""
+
+  # Comma-separated ISO dates that must never be claimed (leave, public
+  # holidays the calendar does not carry).
+  excludedDates: ""
+
+  # InSite page slugs for the two claim forms. Employer-chosen publication
+  # names, so they default to empty and normally arrive from the vault.
+  commutePagePath: ""
+  homePagePath: ""
+
+  # Free-form extra ConfigMap keys: KEY: value, rendered verbatim.
+  extra: {}
+
+# ---------------------------------------------------------------------------
+# Database
+#
+# The app reads a single DATABASE_URL, which carries the password, so it is a
+# credential and never appears in a values file. This block only says where it
+# comes from: either a Secret you manage yourself (existingSecret, projected as
+# an explicit secretKeyRef) or the release Secret produced by the ExternalSecret
+# below (externalSecret.data.DATABASE_URL). _guards.tpl fails if neither.
+# ---------------------------------------------------------------------------
+database:
+  existingSecret: ""
+  existingSecretKey: DATABASE_URL
+
+# A Secret you manage outside this release carrying every secret env var. Set
+# it INSTEAD of externalSecret.enabled — two writers of one Secret is a
+# silent-corruption bug whose symptom is a credential that intermittently
+# reverts.
+existingSecret: ""
+
+# ---------------------------------------------------------------------------
+# Secrets, via External Secrets Operator
+#
+# `data` maps ENV VAR NAME -> vault entry. It is EMPTY here on purpose: the
+# public chart ships the shape, an environment supplies the entries. ESO
+# resolves the list all-or-nothing, so one missing or non-ACTIVE entry leaves
+# the whole Secret absent and every pod down.
+# ---------------------------------------------------------------------------
+externalSecret:
+  enabled: true
+  # The firefly estate serves v1beta1 exclusively; v1 is not registered.
+  apiVersion: external-secrets.io/v1beta1
+  refreshInterval: 1h
+  secretStore:
+    name: ""
+    kind: ClusterSecretStore
+  # Example (put this in your environment's values, never here):
+  #   data:
+  #     DATABASE_URL: {key: afas-declaraties-database-url}
+  #     INSITE_HOST:  {key: afas-declaraties-insite-host}
+  data: {}
+  # Checked by _guards.tpl against keys(data). Trim it if a workload is
+  # disabled and genuinely does not need the key.
+  # OP_ITEM_NAME is deliberately absent: the value is a generic 1Password item
+  # name, not a secret and not employer-identifying, so it is plain chart
+  # config. Only entries that are secret OR would identify the employer in a
+  # public repo belong in the vault.
+  requiredKeys:
+    - DATABASE_URL
+    - INSITE_HOST
+    # Page slugs are publication names chosen by the employer, so they are
+    # vault-supplied like the hostname. config.py _require()s both for every
+    # subcommand: without them each workload exits 2 before doing anything.
+    - COMMUTE_PAGE_PATH
+    - HOME_PAGE_PATH
+    - OP_SERVICE_ACCOUNT_TOKEN
+    - OP_VAULT
+    - SLACK_BOT_TOKEN
+    - SLACK_APP_TOKEN
+    - SLACK_CHANNEL_ID
+    - SLACK_APPROVER_IDS
+
+# ---------------------------------------------------------------------------
+# Chromium
+#
+# A memory-backed emptyDir counts against the container's memory LIMIT, so the
+# limit has to exceed shmSize plus the browser's own working set. That is why
+# the browser jobs sit at 1.5Gi.
+# ---------------------------------------------------------------------------
+browser:
+  shmSize: 512Mi
+  # /tmp holds the Chromium profile plus the screenshot and page HTML saved on
+  # failure — the artefacts that make a moved selector diagnosable.
+  tmpSize: 1Gi
+
+# ---------------------------------------------------------------------------
+# slackd — the Socket Mode listener
+#
+# No Service, no Ingress, no port: Socket Mode dials out. Health is a heartbeat
+# file the process touches, checked by an exec probe.
+# ---------------------------------------------------------------------------
+slackd:
+  enabled: true
+  heartbeatFile: /tmp/healthy
+  heartbeatMaxAgeSeconds: 180
+  terminationGracePeriodSeconds: 30
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  livenessProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    failureThreshold: 3
+  readinessProbe:
+    initialDelaySeconds: 10
+    periodSeconds: 15
+    failureThreshold: 3
+
+# ---------------------------------------------------------------------------
+# CronJobs
+#
+# `browser: true` gets /dev/shm and the Chromium-sized resource block.
+#
+# Every browser job is backoffLimit: 0 and concurrencyPolicy: Forbid. A retry
+# re-drives a corporate SSO login, and repeated failed logins lock the account.
+# The next scheduled run is the retry.
+#
+# Requests are sized for the 2-CPU arm64 cloud nodes: 300m fits, 500m is the
+# ceiling, and anything above it leaves the pod Pending with a failure that
+# looks nothing like "the request is too big".
+# ---------------------------------------------------------------------------
+jobs:
+  # Nightly: read the calendar out of Outlook Web and classify each day.
+  classify:
+    enabled: true
+    # 23:30, after the day is done and any late booking has landed.
+    schedule: "30 23 * * *"
+    timeZone: Europe/Amsterdam
+    # Drives Chromium: the tenant grants no app registration, so the calendar
+    # is read by driving OWA as the signed-in user.
+    browser: true
+    concurrencyPolicy: Forbid
+    startingDeadlineSeconds: 600
+    successfulJobsHistoryLimit: 3
+    failedJobsHistoryLimit: 3
+    backoffLimit: 0
+    activeDeadlineSeconds: 900
+    command:
+      - python
+      - -m
+      - afas_declaraties.cli
+    args:
+      - classify
+    resources:
+      requests:
+        cpu: 300m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1536Mi
+
+  # Fridays: post the week's classification to Slack for correction.
+  digest:
+    enabled: true
+    schedule: "0 16 * * 5"
+    timeZone: Europe/Amsterdam
+    # Reads Postgres, posts Block Kit. No browser, so no /dev/shm and a much
+    # smaller footprint.
+    browser: false
+    concurrencyPolicy: Forbid
+    startingDeadlineSeconds: 600
+    successfulJobsHistoryLimit: 3
+    failedJobsHistoryLimit: 3
+    backoffLimit: 0
+    activeDeadlineSeconds: 300
+    command:
+      - python
+      - -m
+      - afas_declaraties.cli
+    args:
+      - digest
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+  # 28th of the month: build the verzameldeclaratie in AFAS InSite. This is the
+  # workload DRY_RUN gates.
+  build:
+    enabled: true
+    schedule: "0 6 28 * *"
+    timeZone: Europe/Amsterdam
+    browser: true
+    concurrencyPolicy: Forbid
+    startingDeadlineSeconds: 600
+    successfulJobsHistoryLimit: 3
+    failedJobsHistoryLimit: 3
+    backoffLimit: 0
+    # A month of rows entered one field at a time, each verified after entry.
+    activeDeadlineSeconds: 1800
+    command:
+      - python
+      - -m
+      - afas_declaraties.cli
+    args:
+      - build
+    resources:
+      requests:
+        cpu: 300m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1536Mi
+
+# Placement. Empty by default so the chart stays portable; an environment that
+# has to pin the workload to a tier sets these.
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Appended to every workload. `extraEnv` is a list of core/v1 EnvVar, so a
+# caller can add a secretKeyRef without colliding with the chart's own env.
+extraEnv: []
+extraEnvFrom: []
+extraVolumes: []
+extraVolumeMounts: []

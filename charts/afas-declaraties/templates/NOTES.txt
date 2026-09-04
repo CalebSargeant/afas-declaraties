@@ -1,0 +1,50 @@
+{{- include "afas.guards" . -}}
+afas-declaraties {{ .Chart.AppVersion }} deployed as {{ include "afas.fullname" . }}.
+
+  Image:  {{ include "afas.image" . }}
+{{- range $name, $job := .Values.jobs }}
+{{- if $job.enabled }}
+  Cron:   {{ include "afas.fullname" $ }}-{{ $name }}  {{ $job.schedule }} ({{ $job.timeZone }})
+{{- end }}
+{{- end }}
+{{- if .Values.slackd.enabled }}
+  Slack:  {{ include "afas.fullname" . }}-slackd (Socket Mode, 1 replica, no Service)
+{{- end }}
+
+Run a job now:
+
+  kubectl -n {{ .Release.Namespace }} create job --from=cronjob/{{ include "afas.fullname" . }}-classify manual-$(date +%s)
+
+Correct a day by hand, when Slack is not an option (it writes the same audit
+row a Slack correction does, and runs in a pod that already has the database
+and the vault-projected env):
+{{ if .Values.slackd.enabled }}
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "afas.fullname" . }}-slackd -- \
+    python -m afas_declaraties.cli override --help
+{{ else }}
+  (slackd is disabled, so there is no long-lived pod to exec into.)
+{{ end }}
+{{ if eq (.Values.config.dryRun | toString | lower) "true" -}}
+DRY_RUN is "true", so the build job walks the whole InSite form and stops
+before submitting. Nothing is filed and nothing is spent. Flip
+config.dryRun to "false" only once you have watched a dry run produce the
+rows you expected.
+{{ else -}}
+WARNING: DRY_RUN is "false". The build job will file a real
+verzameldeclaratie in AFAS InSite. Approval is enforced in Slack against
+SLACK_APPROVER_IDS; nothing else stands between a click and a submission.
+{{ end }}
+{{- if not .Values.slackd.enabled }}
+NOTE: slackd is disabled, so nothing is listening for approval clicks. The
+digest and build jobs will post cards whose buttons go nowhere.
+{{ end -}}
+{{- if and .Values.externalSecret.enabled (not .Values.externalSecret.data) }}
+NOTE: externalSecret.data is empty, so the projected Secret has no keys and
+every pod will start without its credentials.
+{{ end -}}
+{{- if not (or .Values.nodeSelector .Values.affinity) }}
+NOTE: no nodeSelector or affinity is set, so the browser jobs land wherever
+the scheduler puts them. Each asks for a few hundred millicores and half a
+gigabyte; on a 2-CPU node pool that only schedules if the tier has the
+headroom, and the symptom of not having it is a Pending pod, not an error.
+{{ end -}}

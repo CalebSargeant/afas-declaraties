@@ -1,0 +1,503 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "afas-declaraties chart values",
+  "description": "Structural validation only: types, enums and patterns. The rules that actually keep this chart from filing wrong expense claims are cross-field and live in templates/_guards.tpl, because JSON Schema cannot express them with a message worth reading \u2014 'no source for INSITE_HOST' means checking three places at once.",
+  "type": "object",
+  "properties": {
+    "nameOverride": {
+      "type": "string"
+    },
+    "fullnameOverride": {
+      "type": "string"
+    },
+    "priorityClassName": {
+      "type": "string"
+    },
+    "automountServiceAccountToken": {
+      "type": "boolean"
+    },
+    "enableServiceLinks": {
+      "type": "boolean"
+    },
+    "existingSecret": {
+      "type": "string",
+      "description": "A Secret you manage outside this release carrying every secret env var. Mutually exclusive with externalSecret.enabled."
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tag": {
+          "type": "string",
+          "description": "Empty falls back to Chart.yaml appVersion, which is v-prefixed."
+        },
+        "digest": {
+          "type": "string",
+          "description": "sha256:\u2026 Wins over tag. Prefer it in production.",
+          "pattern": "^$|^sha256:[a-f0-9]{64}$"
+        },
+        "pullPolicy": {
+          "type": "string",
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
+        }
+      },
+      "required": [
+        "repository"
+      ]
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "create": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "annotations": {
+          "type": "object"
+        }
+      }
+    },
+    "podAnnotations": {
+      "type": "object"
+    },
+    "podLabels": {
+      "type": "object"
+    },
+    "podSecurityContext": {
+      "type": "object"
+    },
+    "securityContext": {
+      "type": "object"
+    },
+    "config": {
+      "type": "object",
+      "description": "Non-secret configuration only. Anything that identifies the employer belongs in externalSecret.data instead \u2014 this chart is published from a public repository.",
+      "properties": {
+        "logLevel": {
+          "type": "string",
+          "enum": [
+            "debug",
+            "info",
+            "warning",
+            "error",
+            "critical",
+            "DEBUG",
+            "INFO",
+            "WARNING",
+            "ERROR",
+            "CRITICAL"
+          ]
+        },
+        "tz": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dryRun": {
+          "description": "\"true\" walks the InSite form and stops before submitting. \"false\" files a real expense claim. Accepts a string or a boolean; anything else is refused by _guards.tpl rather than being coerced, because the wrong coercion spends money.",
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            },
+            {
+              "type": "boolean"
+            }
+          ]
+        },
+        "headless": {
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            },
+            {
+              "type": "boolean"
+            }
+          ]
+        },
+        "browserProfileDir": {
+          "type": "string",
+          "description": "Must be under a writable volume; the root filesystem is read-only.",
+          "pattern": "^/"
+        },
+        "bookingOrganisers": {
+          "type": "string"
+        },
+        "bookingSubjectPrefixes": {
+          "type": "string"
+        },
+        "excludedDates": {
+          "type": "string",
+          "description": "Comma-separated ISO dates.",
+          "pattern": "^$|^\\d{4}-\\d{2}-\\d{2}(,\\s*\\d{4}-\\d{2}-\\d{2})*$"
+        },
+        "commutePagePath": {
+          "type": "string"
+        },
+        "homePagePath": {
+          "type": "string"
+        },
+        "extra": {
+          "type": "object",
+          "description": "Verbatim extra ConfigMap keys.",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean"
+            ]
+          }
+        }
+      },
+      "required": [
+        "dryRun",
+        "tz"
+      ],
+      "additionalProperties": false
+    },
+    "database": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Where DATABASE_URL comes from. The DSN itself never appears in a values file: it carries the password.",
+      "properties": {
+        "existingSecret": {
+          "type": "string"
+        },
+        "existingSecretKey": {
+          "type": "string"
+        }
+      }
+    },
+    "externalSecret": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "apiVersion": {
+          "type": "string",
+          "description": "The ExternalSecret API version the cluster's ESO actually serves. An older operator serves v1beta1 only.",
+          "pattern": "^external-secrets\\.io/v1"
+        },
+        "refreshInterval": {
+          "type": "string",
+          "minLength": 1
+        },
+        "secretStore": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "ClusterSecretStore",
+                "SecretStore"
+              ]
+            }
+          }
+        },
+        "data": {
+          "type": "object",
+          "description": "ENV_VAR -> vault entry. Keys are env var names, values name a vault entry \u2014 never a value.",
+          "propertyNames": {
+            "pattern": "^[A-Z][A-Z0-9_]*$"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "key": {
+                "type": "string",
+                "minLength": 1
+              },
+              "property": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "key"
+            ]
+          }
+        },
+        "requiredKeys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$"
+          }
+        }
+      }
+    },
+    "browser": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "shmSize": {
+          "type": "string",
+          "description": "Chromium dies on the default 64 MB. This emptyDir is memory-backed, so it counts against the container memory LIMIT.",
+          "pattern": "^[0-9]+(m|Mi|G|Gi|M)?$"
+        },
+        "tmpSize": {
+          "type": "string",
+          "pattern": "^[0-9]+(m|Mi|G|Gi|M)?$"
+        }
+      }
+    },
+    "slackd": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The Socket Mode listener. Replica count is not configurable: Slack load-balances events across an app's sockets, so a second replica silently drops half the approval clicks.",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "heartbeatFile": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "heartbeatMaxAgeSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "terminationGracePeriodSeconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resources": {
+          "$ref": "#/$defs/resources"
+        },
+        "livenessProbe": {
+          "$ref": "#/$defs/probe"
+        },
+        "readinessProbe": {
+          "$ref": "#/$defs/probe"
+        }
+      }
+    },
+    "jobs": {
+      "type": "object",
+      "description": "CronJobs, keyed by name. The key becomes the workload name suffix and the app.kubernetes.io/component label.",
+      "propertyNames": {
+        "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "schedule": {
+            "type": "string"
+          },
+          "timeZone": {
+            "type": "string",
+            "description": "An IANA zone, so a schedule survives DST. UTC arithmetic would move the 06:00 run to 07:00 for half the year."
+          },
+          "browser": {
+            "type": "boolean",
+            "description": "true adds a memory-backed /dev/shm and implies Chromium-sized resources."
+          },
+          "concurrencyPolicy": {
+            "type": "string",
+            "enum": [
+              "Allow",
+              "Forbid",
+              "Replace"
+            ]
+          },
+          "startingDeadlineSeconds": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "successfulJobsHistoryLimit": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failedJobsHistoryLimit": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "backoffLimit": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "0 for anything that drives a browser: a retry re-drives the corporate SSO login and repeated failures lock the account. _guards.tpl enforces it."
+          },
+          "activeDeadlineSeconds": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "command": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "resources": {
+            "$ref": "#/$defs/resources"
+          }
+        },
+        "required": [
+          "enabled",
+          "schedule",
+          "command"
+        ]
+      }
+    },
+    "nodeSelector": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "tolerations": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "affinity": {
+      "type": "object"
+    },
+    "extraEnv": {
+      "type": "array",
+      "description": "core/v1 EnvVar list items, appended to every workload.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    "extraEnvFrom": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "extraVolumes": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "extraVolumeMounts": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  },
+  "$defs": {
+    "quantity": {
+      "type": [
+        "string",
+        "number"
+      ]
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requests": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cpu": {
+              "$ref": "#/$defs/quantity"
+            },
+            "memory": {
+              "$ref": "#/$defs/quantity"
+            },
+            "ephemeral-storage": {
+              "$ref": "#/$defs/quantity"
+            }
+          }
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cpu": {
+              "$ref": "#/$defs/quantity"
+            },
+            "memory": {
+              "$ref": "#/$defs/quantity"
+            },
+            "ephemeral-storage": {
+              "$ref": "#/$defs/quantity"
+            }
+          }
+        }
+      }
+    },
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "initialDelaySeconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "periodSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "failureThreshold": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$comment": "additionalProperties:false is deliberate. A mistyped key in a HelmRelease (config.DRY_RUN instead of config.dryRun, slack instead of slackd) is otherwise silently ignored and the chart default applies -- which for dryRun means believing the system is live when it is not. Use config.extra for genuinely free-form settings."
+}
