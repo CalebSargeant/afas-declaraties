@@ -153,7 +153,7 @@ jobs:
           printf '%s\n' "${HYGIENE_FORBIDDEN_STRINGS:-}" \
             | sed 's/[[:space:]]*$//' \
             | grep -v '^[[:space:]]*#' \
-            | grep -v '^[[:space:]]*$' >"${WORDS_FILE}"
+            | grep -v '^[[:space:]]*$' >"${WORDS_FILE}" || true
 
           if [ -s "${WORDS_FILE}" ]; then
             while IFS= read -r w; do
