@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.0.4 (2026-09-05)
+
+### Bug Fixes
+
+- **calendar**: Read the week actually on screen, and navigate to reach others
+  ([#7](https://github.com/CalebSargeant/afas-declaraties/pull/7),
+  [`4568b11`](https://github.com/CalebSargeant/afas-declaraties/commit/4568b1195b08f14704d3b34d5c47008f3d67dfce))
+
+
 ## v1.0.3 (2026-09-05)
 
 ### Bug Fixes
