@@ -266,3 +266,40 @@ one that matters.
   Slack workspace/channel/user id, OCI OCID, vault name, email address or
   employee number in any tracked file, including in a comment or a
   redacted-looking example. Use `<PLACEHOLDER>`.
+
+## Pushing straight to main produces a release with no image
+
+`container-image-release.yaml` calls a reusable workflow that **promotes, it does
+not rebuild**: a `pull_request` build publishes `pr-<number>`, and a release then
+retags that existing image as the release version. Its "Get PR Number" step walks
+the release commit and its ancestors looking for the merged PR that produced them.
+
+A commit pushed directly to `main` has no associated PR, so that lookup fails with
+`Could not find merged PR for commit <sha>` and the release ends up with a chart
+but no image. The HelmRelease then installs and every pod sits in
+`ImagePullBackOff` against a tag that was never built — which reads like a registry
+or credentials problem rather than a missing upstream build.
+
+Every change destined for a release goes through a PR, including one-line CI fixes.
+
+## v1.0.29 of the shared docker-bake reusable workflow fails at startup
+
+Calling `docker-bake-ghcr.yaml@v1.0.29` produced `startup_failure` on both
+`release` and `workflow_dispatch`, with no job created and nothing in the logs.
+actionlint passed, the SHA resolved, the source repo is public and Actions
+permissions matched the siblings. Pinning to v1.0.24 — the version
+fortivpn-gateway runs — starts normally. Do not "upgrade" this pin without
+checking a run actually starts.
+
+## A Chromium selftest in the Dockerfile breaks the cross-built leg
+
+The image build launches Chromium once to prove the browser works, so a broken
+image fails the build rather than the 23:30 CronJob. That check cannot run on the
+emulated leg: buildx builds the non-native platform under QEMU, which does not
+implement `ptrace`, and Chromium dies during sandbox setup with
+`ptrace: Function not implemented`. It looks like a broken image and is not.
+
+It passes locally because a native build is not emulated — on Apple Silicon the
+arm64 leg is native and only amd64 is emulated, which is the opposite of CI.
+The step is guarded on `TARGETPLATFORM != BUILDPLATFORM` and skips with a printed
+reason; the native leg still runs it on every build.
