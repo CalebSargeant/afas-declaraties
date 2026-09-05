@@ -131,8 +131,25 @@ _HEADER_HINT = re.compile(r"jump to a specific date", re.IGNORECASE)
 _NAV_HINT = re.compile(r"^\s*go to (previous|next)", re.IGNORECASE)
 
 
-def rendered_week(page) -> tuple[date, date] | None:
-    """The week currently on screen, read from the date-picker header."""
+def rendered_week(page, *, retries: int = 1, pause_ms: int = 3_000) -> tuple[date, date] | None:
+    """The week currently on screen, read from the date-picker header.
+
+    Retries because the header is re-rendered asynchronously after a week
+    change: reading it immediately after clicking Previous/Next can catch the
+    page mid-update with no range present at all. Returning None there is safe
+    -- the caller reports degraded rather than guessing a week -- but it costs a
+    whole classification run, so give it a moment first.
+    """
+    for attempt in range(retries + 1):
+        found = _rendered_week_once(page)
+        if found is not None:
+            return found
+        if attempt < retries:
+            page.wait_for_timeout(pause_ms)
+    return None
+
+
+def _rendered_week_once(page) -> tuple[date, date] | None:
     labels = page.evaluate(_HARVEST_JS)
     # Preferred: the header itself. Fallback: any range that is not a
     # navigation button. Never just "the first range on the page".
