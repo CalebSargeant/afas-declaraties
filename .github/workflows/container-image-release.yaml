@@ -34,10 +34,10 @@ permissions:
 
 jobs:
   docker:
-    uses: calebsargeant/reusable-workflows/.github/workflows/docker-bake-ghcr.yaml@0c3840625b6760212a3e74a54a1a37a2fe61813c # v1.0.29
+    uses: calebsargeant/reusable-workflows/.github/workflows/docker-bake-ghcr.yaml@ed07d06ba6cc77517b697a89cc82a9876bb49858 # v1.0.24
     with:
       image_name: afas-declaraties
       platforms: linux/amd64,linux/arm64
       push: true
-      force_version: ${{ (github.event_name == 'release' && github.event.release.tag_name) || github.event.inputs.version || '' }}
+      force_version: ${{ github.event.release.tag_name || github.event.inputs.version || '' }}
     secrets: inherit
