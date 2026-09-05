@@ -318,3 +318,21 @@ and the failure surfaced only at release time — long after the PR was green.
 
 Passing `bake_target: app` makes the target match and the single-image branch is
 taken. Renaming the bake target would work too; naming the input is clearer.
+
+## OWA week navigation: the nav button's label is not the current week
+
+Two traps, both silent, both of which classify real office days as home.
+
+1. **Deep links do not work.** `/calendar/view/workweek?startdate=YYYY-MM-DD`
+   and `/calendar/view/workweek/YYYY/MM/DD` both render the CURRENT week, with
+   no error and a full set of labels. Navigate by clicking the calendar's own
+   `Previous week` / `Next week` buttons instead.
+2. **`Go to previous week` carries the previous week's date range** in its
+   aria-label, and it appears in the DOM before the header. Matching the first
+   date range on the page therefore reads a week that is not on screen, so every
+   navigation decision is made against a baseline one week out. Match the header
+   specifically -- it is the label containing "Jump to a specific date".
+
+Symptom: weeks other than the current one return zero events while reporting
+`degraded=False`, so the classifier calls every day home. Regression test in
+`tests/test_calendar_week.py`.
