@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.0.5 (2026-09-05)
+
+### Bug Fixes
+
+- **calendar**: Retry the week header, which re-renders asynchronously
+  ([#8](https://github.com/CalebSargeant/afas-declaraties/pull/8),
+  [`c23734f`](https://github.com/CalebSargeant/afas-declaraties/commit/c23734f78c75d9af0222fedeec4048032d49b214))
+
+
 ## v1.0.4 (2026-09-05)
 
 ### Bug Fixes
