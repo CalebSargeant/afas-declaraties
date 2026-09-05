@@ -15,9 +15,15 @@ class FakePage:
 
     def __init__(self, labels):
         self._labels = labels
+        self.waits = 0
 
     def evaluate(self, _js):
         return self._labels
+
+    def wait_for_timeout(self, _ms):
+        # rendered_week retries: the header re-renders asynchronously after a
+        # week change, so a single read can catch the page mid-update.
+        self.waits += 1
 
 
 # Verbatim label SHAPES from the live calendar. The navigation buttons describe
@@ -52,7 +58,9 @@ def test_same_month_range_parses():
 
 def test_returns_none_when_no_header_is_present():
     """Better to report "cannot tell" than to guess a week."""
-    assert rendered_week(FakePage([EVENT])) is None
+    page = FakePage([EVENT])
+    assert rendered_week(page) is None
+    assert page.waits > 0, "should retry before giving up on the header"
 
 
 def test_looks_like_event_distinguishes_events_from_chrome():
