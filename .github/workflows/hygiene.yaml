@@ -130,6 +130,7 @@ jobs:
           GENERATED
           GITIGNORE
           GUARANTEE
+          TARGETPLATFORM
           TEMPLATES
           TERRAFORM
           THUISWERK
@@ -141,6 +142,7 @@ jobs:
           UNDEFINED
           UNLIMITED
           UPPERCASE
+
           WORDS
 
           # ---------------------------------------------------------------
