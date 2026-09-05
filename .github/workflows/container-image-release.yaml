@@ -31,9 +31,6 @@ permissions:
   packages: write
   id-token: write
 
-concurrency:
-  group: container-image-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   docker:
