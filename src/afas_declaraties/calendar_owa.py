@@ -109,20 +109,128 @@ _HARVEST_JS = """() => {
 }"""
 
 
-def read_week(page, monday: date, *, settle_ms: int = 12_000) -> tuple[list[CalendarEvent], bool]:
+#: The date-range header, e.g. "August 31 - September 4, 2026, Jump to a
+#: specific date or date range." It is the only reliable statement of which week
+#: is on screen: a week with no events yields no event labels at all, so the
+#: rendered range cannot be inferred from the events themselves.
+_RANGE_RE = re.compile(
+    r"\b(" + "|".join(_MONTHS) + r")\s+(\d{1,2})\s*[\u2013\u2014-]\s*"
+    r"(?:(" + "|".join(_MONTHS) + r")\s+)?(\d{1,2}),\s*(\d{4})",
+    re.IGNORECASE,
+)
+
+WORKWEEK_URL = "https://outlook.office.com/calendar/view/workweek"
+
+
+#: The date-picker header carries this phrase; the Previous/Next week buttons do
+#: not. Both kinds of label contain a date RANGE, and the navigation buttons
+#: describe the week they would move TO -- so matching the first range on the
+#: page silently reads the previous week's dates as the current ones, and every
+#: navigation decision is then made against a baseline one week out.
+_HEADER_HINT = re.compile(r"jump to a specific date", re.IGNORECASE)
+_NAV_HINT = re.compile(r"^\s*go to (previous|next)", re.IGNORECASE)
+
+
+def rendered_week(page) -> tuple[date, date] | None:
+    """The week currently on screen, read from the date-picker header."""
+    labels = page.evaluate(_HARVEST_JS)
+    # Preferred: the header itself. Fallback: any range that is not a
+    # navigation button. Never just "the first range on the page".
+    for predicate in (
+        lambda x: _HEADER_HINT.search(x),
+        lambda x: not _NAV_HINT.search(x),
+    ):
+        for label in labels:
+            if not predicate(label):
+                continue
+            m = _RANGE_RE.search(label)
+            if not m:
+                continue
+            m1, d1, m2, d2, year = m.groups()
+            start = date(int(year), _MONTHS[m1.lower()], int(d1))
+            end = date(int(year), _MONTHS[(m2 or m1).lower()], int(d2))
+            return start, end
+    return None
+
+
+#: An event label always names an organiser and says when it happens. The page
+#: chrome (navigation buttons, the date-range header) never does, which makes
+#: this a reliable "the grid has rendered" signal.
+_EVENT_HINT = re.compile(r",\s*By\s+[^,]+,", re.IGNORECASE)
+
+
+def looks_like_event(label: str) -> bool:
+    return bool(_EVENT_HINT.search(label)) and (
+        "all day event" in label.lower() or _TIME_RE.search(label) is not None
+    )
+
+
+def _settle(page, *, settle_ms: int, tries: int = 8) -> list[str]:
+    """Poll until the event grid has actually rendered.
+
+    Waiting for the label count to stop changing is not enough: the chrome
+    settles several seconds before the events do, so a stability check returns
+    the navigation buttons alone and the week reads as empty. Waiting for a
+    label that actually looks like an event is the honest signal. A week that
+    genuinely has no events falls through to the deadline, which is why the
+    caller still separates "no events" from "did not load".
+    """
+    labels: list[str] = []
+    for _ in range(tries):
+        page.wait_for_timeout(settle_ms // 4)
+        labels = page.evaluate(_HARVEST_JS)
+        if any(looks_like_event(x) for x in labels):
+            page.wait_for_timeout(settle_ms // 4)
+            return page.evaluate(_HARVEST_JS)
+    return labels
+
+
+def read_week(page, monday: date, *, settle_ms: int = 12_000, max_steps: int = 10):
     """Read one work week from OWA. Returns ``(events, degraded)``.
 
-    ``degraded`` is the important half of the return value. "No events found"
-    and "the page did not load" look identical downstream, and treating the
-    second as the first turns an outage into a month of home-working claims.
+    Navigation is by clicking the calendar's own Previous/Next week control.
+    The obvious approach -- deep-linking to ``/workweek?startdate=YYYY-MM-DD``
+    or ``/workweek/YYYY/MM/DD`` -- silently renders the CURRENT week instead,
+    with no error and a full set of event labels. A caller that trusted it read
+    this week's events, found none dated in the week it asked for, and
+    classified those days as working-from-home. That is the exact shape of
+    "missing data became a claim", so the rendered week is now verified against
+    the requested one and a mismatch is reported as degraded, never as an empty
+    week.
     """
-    url = f"https://outlook.office.com/calendar/view/workweek?startdate={monday.isoformat()}"
-    page.goto(url, wait_until="domcontentloaded", timeout=90_000)
-    page.wait_for_timeout(settle_ms)
+    page.goto(WORKWEEK_URL, wait_until="domcontentloaded", timeout=90_000)
+    labels = _settle(page, settle_ms=settle_ms)
+    if not any(looks_like_event(x) for x in labels):
+        # On a freshly created profile the calendar chrome renders but the event
+        # grid stays empty however long it is given. One reload populates it.
+        # Without this a cold run -- which is every run in the cluster, because
+        # the pod's profile is ephemeral -- sees an empty calendar and would
+        # classify the whole window as working-from-home.
+        logger.info("owa: no events after first load; reloading once")
+        page.reload(wait_until="domcontentloaded", timeout=90_000)
+        _settle(page, settle_ms=settle_ms)
 
-    labels = page.evaluate(_HARVEST_JS)
-    events: list[CalendarEvent] = []
-    failures = 0
+    target_end = monday + timedelta(days=4)
+    for _ in range(max_steps + 1):
+        current = rendered_week(page)
+        if current is None:
+            logger.error("owa: cannot read the date-range header; refusing to guess the week")
+            return [], True
+        if current[0] <= monday and target_end <= current[1] + timedelta(days=2):
+            break
+        direction = "Previous week" if monday < current[0] else "Next week"
+        try:
+            page.get_by_role("button", name=direction).first.click(timeout=15_000)
+        except Exception:  # noqa: BLE001
+            logger.error("owa: no %r control; cannot reach the week of %s", direction, monday)
+            return [], True
+        _settle(page, settle_ms=settle_ms)
+    else:
+        logger.error("owa: could not reach the week of %s within %d steps", monday, max_steps)
+        return [], True
+
+    labels = _settle(page, settle_ms=settle_ms)
+    events, failures = [], 0
     for label in labels:
         try:
             events.append(parse_event_label(label))
@@ -133,18 +241,17 @@ def read_week(page, monday: date, *, settle_ms: int = 12_000) -> tuple[list[Cale
     in_week = [e for e in events if e.day in week]
 
     # Every harvested label failing to parse means the label format moved, not
-    # that the week was empty. Distinguishing the two is the whole point.
-    degraded = bool(labels) and not in_week and failures == len(labels)
+    # that the week was empty.
+    degraded = bool(labels) and failures == len(labels)
     if degraded:
         logger.error(
             "owa: %d labels harvested, none parsed -- label format may have changed", failures
         )
-    elif not in_week:
-        logger.warning("owa: no events for week of %s", monday)
 
     logger.info(
-        "owa: week %s -> %d events (%d labels, %d unparsed)",
+        "owa: week %s (rendered %s..%s) -> %d events (%d labels, %d unparsed)",
         monday,
+        *rendered_week(page),
         len(in_week),
         len(labels),
         failures,
