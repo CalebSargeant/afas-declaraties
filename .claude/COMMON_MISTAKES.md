@@ -290,3 +290,16 @@ actionlint passed, the SHA resolved, the source repo is public and Actions
 permissions matched the siblings. Pinning to v1.0.24 — the version
 fortivpn-gateway runs — starts normally. Do not "upgrade" this pin without
 checking a run actually starts.
+
+## A Chromium selftest in the Dockerfile breaks the cross-built leg
+
+The image build launches Chromium once to prove the browser works, so a broken
+image fails the build rather than the 23:30 CronJob. That check cannot run on the
+emulated leg: buildx builds the non-native platform under QEMU, which does not
+implement `ptrace`, and Chromium dies during sandbox setup with
+`ptrace: Function not implemented`. It looks like a broken image and is not.
+
+It passes locally because a native build is not emulated — on Apple Silicon the
+arm64 leg is native and only amd64 is emulated, which is the opposite of CI.
+The step is guarded on `TARGETPLATFORM != BUILDPLATFORM` and skips with a printed
+reason; the native leg still runs it on every build.

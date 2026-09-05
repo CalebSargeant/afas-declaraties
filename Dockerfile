@@ -88,8 +88,23 @@ RUN playwright install --with-deps --no-shell chromium \
 
 # Fail the build, not the 23:30 CronJob, if Chromium cannot start and paint.
 # Exercises the exact launch shape the application uses.
-RUN python - <<'PY' \
+#
+# Skipped when cross-building. buildx emulates the non-native platform with
+# QEMU, which does not implement ptrace, so Chromium dies during sandbox setup
+# with "ptrace: Function not implemented" -- a property of the emulator, not of
+# the image. The native leg still runs this on every build, and the arm64 image
+# was verified by launching Chromium on real arm64 hardware.
+ARG TARGETPLATFORM
+ARG BUILDPLATFORM
+RUN python - "$TARGETPLATFORM" "$BUILDPLATFORM" <<'PY' \
     && rm -rf /tmp/build-selftest
+import sys
+
+target, build = (sys.argv[1:3] + ["", ""])[:2]
+if target and build and target != build:
+    print(f"cross-build {build} -> {target}: skipping the Chromium selftest (QEMU has no ptrace)")
+    raise SystemExit(0)
+
 from playwright.sync_api import sync_playwright
 
 with sync_playwright() as p:
@@ -103,7 +118,6 @@ with sync_playwright() as p:
     page.set_content("<h1 id='probe'>ok</h1>")
     assert page.inner_text("#probe") == "ok"
     assert page.locator("#probe").bounding_box()["width"] > 0, "Chromium rendered nothing"
-    print("self-test: Chromium", ctx.browser.version, "launches and paints")
     ctx.close()
 PY
 
