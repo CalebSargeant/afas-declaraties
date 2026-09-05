@@ -303,3 +303,18 @@ It passes locally because a native build is not emulated — on Apple Silicon th
 arm64 leg is native and only amd64 is emulated, which is the opposite of CI.
 The step is guarded on `TARGETPLATFORM != BUILDPLATFORM` and skips with a printed
 reason; the native leg still runs it on every build.
+
+## The release promotes `<image>-<bake target>` unless bake_target is named
+
+The shared docker-bake workflow supports repos that build several images from one
+bake file (fortivpn-gateway builds cookie/vpn/bgp). Its promote step lists the
+bake targets and, for any target whose name differs from the `bake_target` input,
+promotes `<image_name>-<target>`.
+
+`bake_target` defaults to `default`. Our group `default` resolves to the single
+target `app`, so the release looked for `afas-declaraties-app:pr-N` while the PR
+build had pushed `afas-declaraties:pr-N`. The chart published, the image did not,
+and the failure surfaced only at release time — long after the PR was green.
+
+Passing `bake_target: app` makes the target match and the single-image branch is
+taken. Renaming the bake target would work too; naming the input is clearer.

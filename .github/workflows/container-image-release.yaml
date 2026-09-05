@@ -37,6 +37,14 @@ jobs:
     uses: calebsargeant/reusable-workflows/.github/workflows/docker-bake-ghcr.yaml@ed07d06ba6cc77517b697a89cc82a9876bb49858 # v1.0.24
     with:
       image_name: afas-declaraties
+      # Must be named explicitly. The promote step lists the bake targets and,
+      # for any target whose name differs from bake_target, promotes
+      # <image_name>-<target> -- the multi-image convention fortivpn-gateway
+      # relies on for its cookie/vpn/bgp images. bake_target defaults to
+      # "default", our group resolves to the single target "app", so the release
+      # looked for afas-declaraties-app:pr-N while the build had pushed
+      # afas-declaraties:pr-N, and every promotion failed with "not found".
+      bake_target: app
       platforms: linux/amd64,linux/arm64
       push: true
       force_version: ${{ github.event.release.tag_name || github.event.inputs.version || '' }}
