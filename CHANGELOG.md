@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v1.0.2 (2026-09-05)
+
+### Bug Fixes
+
+- **ci**: Document the promote-not-rebuild image flow
+  ([#5](https://github.com/CalebSargeant/afas-declaraties/pull/5),
+  [`37d20fd`](https://github.com/CalebSargeant/afas-declaraties/commit/37d20fd2c29689176248d1963c5172d61e9321a8))
+
+- **docker**: Skip the Chromium selftest on cross-built platforms
+  ([#5](https://github.com/CalebSargeant/afas-declaraties/pull/5),
+  [`37d20fd`](https://github.com/CalebSargeant/afas-declaraties/commit/37d20fd2c29689176248d1963c5172d61e9321a8))
+
+### Documentation
+
+- Record why direct pushes to main yield a release with no image
+  ([#5](https://github.com/CalebSargeant/afas-declaraties/pull/5),
+  [`37d20fd`](https://github.com/CalebSargeant/afas-declaraties/commit/37d20fd2c29689176248d1963c5172d61e9321a8))
+
+
 ## v1.0.1 (2026-09-05)
 
 ### Bug Fixes
