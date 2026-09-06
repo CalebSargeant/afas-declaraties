@@ -37,6 +37,11 @@ logger = logging.getLogger(__name__)
 
 HEARTBEAT = Path("/tmp/healthy")
 
+#: How often the socket is checked and the heartbeat rewritten. Must stay well
+#: under the probe's max age (``slackd.heartbeatMaxAgeSeconds``, 180s by
+#: default) so that one slow loop is not mistaken for a dead process.
+HEARTBEAT_INTERVAL_SECONDS = 30
+
 _CHOICE_TO_CLAIM = {
     "office": ClaimType.COMMUTE,
     "home": ClaimType.HOME,
@@ -212,9 +217,30 @@ def build_app(cfg: Config) -> App:
 
 
 def run(cfg: Config) -> None:
-    """Hold the socket. Kubernetes restarts us if the heartbeat goes stale."""
+    """Hold the socket. Kubernetes restarts us if the heartbeat goes stale.
+
+    ``connect()`` rather than ``start()``: start() blocks forever, so the only
+    heartbeats would be the ones the interaction handlers write, and on a quiet
+    week there are none. The probe would then kill a healthy process every few
+    minutes -- which is exactly what it did.
+
+    Refreshing on a timer instead does not weaken the check, because the
+    refresh is conditional on the socket still being up. A handler that is
+    running while Slack has stopped talking to it stops writing the file and
+    gets restarted, which is the case the probe exists for.
+    """
     app = build_app(cfg)
-    _touch_heartbeat()
     handler = SocketModeHandler(app, cfg.slack_app_token)
     logger.info("slackd: connecting (dry_run=%s, approvers=%d)", cfg.dry_run, len(cfg.approver_ids))
-    handler.start()
+    handler.connect()
+    _touch_heartbeat()
+
+    while True:
+        time.sleep(HEARTBEAT_INTERVAL_SECONDS)
+        if handler.client.is_connected():
+            _touch_heartbeat()
+        else:
+            # Deliberately no reconnect here: the SDK already retries in the
+            # background. Withholding the heartbeat is how a socket that never
+            # comes back becomes a restart rather than a silent outage.
+            logger.warning("slackd: socket is down, withholding the heartbeat")

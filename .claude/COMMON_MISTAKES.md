@@ -336,3 +336,36 @@ Two traps, both silent, both of which classify real office days as home.
 Symptom: weeks other than the current one return zero events while reporting
 `degraded=False`, so the classifier calls every day home. Regression test in
 `tests/test_calendar_week.py`.
+
+## A blocking `start()` means the heartbeat is only ever written by traffic
+
+`SocketModeHandler.start()` is `connect()` followed by a forever-wait. Calling
+it leaves no room to refresh anything, so the only heartbeats slackd wrote were
+the ones its interaction handlers wrote — and a week with no approvals delivers
+no interactions. The liveness probe (file older than 180s) then killed a
+perfectly healthy, connected process on a fixed cadence: `initialDelay 30` +
+`180` stale + `3 × 30` failures = **exactly 5 minutes**, forever.
+
+Symptom: `exitCode: 137`, `reason: Error` (not `OOMKilled`), `lastState`
+`startedAt`/`finishedAt` exactly 5 minutes apart, restart count in the hundreds,
+and logs that end on `⚡️ Bolt app is running!` every time. `READY 1/1` the whole
+while, because readiness recovers on each restart.
+
+Use `handler.connect()` and own the loop. Refresh on a timer gated on
+`handler.client.is_connected()`, which keeps the property the probe was built
+for: a socket that silently dies stops the refresh and earns its restart.
+
+## A CronJob for every command the pipeline needs, or the last mile is manual
+
+`submit` existed as a CLI command, was documented, was tested — and nothing in
+the cluster ever ran it. The chart shipped `classify`, `digest` and `build`, so
+an approval click updated Postgres and stopped there.
+
+Check the set of `jobs:` in `values.yaml` against the set of subcommands in
+`cli.py` whenever either changes. A command with no caller looks identical to a
+working feature from inside the repo.
+
+And when adding that job: **do not derive the period from the date.** `build`
+runs on the 28th for the *previous* month, so any submit landing on or after
+the 1st would compute a month later than the one approved. Read the period off
+the approved row. Regression tests in `tests/test_submit_selection.py`.

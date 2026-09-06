@@ -71,6 +71,31 @@ a problem before the period closes.
     The click itself has never been executed against the live portal, because
     doing so files a real claim. Everything up to it has been.
 
+### Submit
+
+Runs daily at 07:00 and files whatever a human approved. Most mornings it reads
+one row, finds nothing in `approved` and exits before opening a browser.
+
+It takes **no period**. `build` runs on the 28th for the *previous* month, so a
+submit that woke on the 1st and worked out "last month" for itself would name
+the month after the one that was approved -- and the portal has no undo. The
+approved row already carries `period_year` and `period_no`, and those are the
+only period this uses. `--year`/`--period` exist for a manual run and must be
+given together.
+
+Before each claim type:
+
+1. Re-derive `lines_digest` from the ledger. If it no longer matches what was
+   approved, the approval was for different content: the submission drops back
+   to `awaiting_approval` and nothing is filed.
+2. `in_flight` is written **before** the click, so a process that dies mid-click
+   cannot be read as "never submitted" and retried.
+3. Under `DRY_RUN` the state returns to `approved`, so the same run repeats
+   harmlessly tomorrow.
+
+Without this job the approval click updates Postgres and stops there: the last
+step into AFAS stays manual, which is the thing the pipeline exists to remove.
+
 ## The classification rules
 
 Evaluated in this order. The order is part of the design, not an accident.

@@ -170,6 +170,7 @@ helm template afas-declaraties charts/afas-declaraties \
 | `classify` | CronJob | nightly 23:30 | browser |
 | `digest` | CronJob | Fridays 16:00 | |
 | `build` | CronJob | 28th of the month 06:00 | browser, respects `DRY_RUN` |
+| `submit` | CronJob | daily 07:00 | browser, respects `DRY_RUN`; no-op unless a period is approved |
 | `slackd` | Deployment | always on | exactly 1 replica |
 
 All CronJobs set `spec.timeZone: Europe/Amsterdam` so the schedule stays correct

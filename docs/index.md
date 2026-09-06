@@ -23,13 +23,14 @@ Outlook Web  ->  classify  ->  Postgres ledger  ->  Slack  ->  InSite  ->  submi
                      +---------- human override -------+
 ```
 
-One image, five commands, four workloads:
+One image, five commands, five workloads:
 
 | Command | Runs as | When (Europe/Amsterdam) |
 |---|---|---|
 | `classify` | CronJob | nightly 23:30 |
 | `digest` | CronJob | Fridays 16:00 |
 | `build` | CronJob | 28th of the month 06:00 |
+| `submit` | CronJob | daily 07:00 |
 | `slackd` | Deployment (1 replica) | always on |
 | `override` | manual | on demand |
 

@@ -164,11 +164,15 @@ this" apart from "this is deliberately unset".
 The heartbeat check, shared by slackd's liveness and readiness probes.
 
 slackd serves no HTTP: Socket Mode dials out, so there is no port to probe and
-no Service to route to. Instead the process touches a file on every successful
-Slack `hello` and once a minute thereafter, and the probe asserts the file is
+no Service to route to. Instead the process rewrites a file every 30
+seconds for as long as its socket is up, and the probe asserts the file is
 recent. A silently disconnected socket — Bolt believing it is connected while
 Slack has stopped delivering — looks identical to a healthy process from the
 outside, and this is what tells them apart.
+
+The refresh is on a timer and not on inbound Slack traffic: a quiet week
+delivers no events, and a probe that waits for one restarts a process that is
+doing its job.
 
 python rather than shell: `stat` takes different flags on busybox and GNU
 coreutils, and the probe must not depend on which base image the app is built

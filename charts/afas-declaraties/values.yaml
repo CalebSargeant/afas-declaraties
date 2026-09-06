@@ -310,6 +310,41 @@ jobs:
         cpu: "1"
         memory: 1536Mi
 
+  # Every morning: file whatever a human approved in Slack. Nine days out of
+  # ten this reads one row, finds nothing approved and exits without opening a
+  # browser, which is the point -- the approval decides when this does work,
+  # not the calendar. Without it the approval click updates Postgres and stops
+  # there, and the last mile into AFAS stays manual.
+  #
+  # It takes no --period. `build` runs on the 28th for the previous month, so a
+  # period worked out from today's date would be a month off for every run that
+  # lands after the 1st. The approved row names its own period.
+  submit:
+    enabled: true
+    schedule: "0 7 * * *"
+    timeZone: Europe/Amsterdam
+    browser: true
+    concurrencyPolicy: Forbid
+    startingDeadlineSeconds: 600
+    successfulJobsHistoryLimit: 3
+    failedJobsHistoryLimit: 3
+    backoffLimit: 0
+    # One task list, one form, one click. Nothing like build's per-row walk.
+    activeDeadlineSeconds: 900
+    command:
+      - python
+      - -m
+      - afas_declaraties.cli
+    args:
+      - submit
+    resources:
+      requests:
+        cpu: 300m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1536Mi
+
 # Placement. Empty by default so the chart stays portable; an environment that
 # has to pin the workload to a tier sets these.
 nodeSelector: {}
