@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.1.0 (2026-09-06)
+
+### Bug Fixes
+
+- **slackd**: Refresh the heartbeat on a timer, not on Slack traffic
+  ([`32399df`](https://github.com/CalebSargeant/afas-declaraties/commit/32399dfddb834783df86978c6232b09da2e8dc2d))
+
+### Features
+
+- **submit**: Run submit on a schedule, and take the period from the approval
+  ([`31fbb98`](https://github.com/CalebSargeant/afas-declaraties/commit/31fbb98248b9d1438f8918a50f8dd73eb94456de))
+
+
 ## v1.0.5 (2026-09-05)
 
 ### Bug Fixes
