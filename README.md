@@ -132,6 +132,7 @@ Workloads, all in `Europe/Amsterdam`:
 | `classify` | CronJob | nightly 23:30 |
 | `digest` | CronJob | Fridays 16:00 |
 | `build` | CronJob | 28th of the month 06:00 |
+| `submit` | CronJob | daily 07:00 |
 | `slackd` | Deployment | always on |
 
 Every browser job runs with `concurrencyPolicy: Forbid`, `backoffLimit: 0`, an

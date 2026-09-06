@@ -237,26 +237,31 @@ def cmd_submit(cfg: Config, args) -> int:
     Only acts on periods a human approved in Slack, and re-checks the approval
     digest first: if the day set moved after approval, the approval was for
     different content and this refuses rather than filing it.
+
+    With no arguments it files everything standing in `approved`, which is what
+    the CronJob runs. It deliberately does not work the period out from today's
+    date: `build` runs on the 28th for the *previous* month, so a submit waking
+    on the 1st would compute the month after the approved one.
     """
     with store.connect(cfg.database_url) as conn:
         store.ensure_schema(conn)
-        pending = []
-        for claim_type in ClaimType:
-            row = (
-                store.get_submission(conn, args.year, args.period, claim_type)
-                if args.year
-                else None
-            )
-            if row is None:
-                continue
-            if row["state"] == "approved":
-                pending.append((claim_type, row))
 
-        if not args.year:
-            logger.error("submit: --year and --period are required")
+        if bool(args.year) != bool(args.period):
+            logger.error("submit: --year and --period must be given together, or not at all")
             return 2
-        if not pending:
-            logger.info("submit: nothing approved for %02d/%d", args.period, args.year)
+
+        if args.year:
+            rows = [
+                row
+                for claim_type in ClaimType
+                if (row := store.get_submission(conn, args.year, args.period, claim_type))
+                and row["state"] == "approved"
+            ]
+        else:
+            rows = store.approved_submissions(conn)
+
+        if not rows:
+            logger.info("submit: nothing approved")
             return 0
 
         with store.browser_lock(conn) as got:
@@ -264,24 +269,24 @@ def cmd_submit(cfg: Config, args) -> int:
                 logger.warning("submit: another browser job holds the lock; exiting")
                 return 0
 
-            for claim_type, row in pending:
-                days = [
-                    r["day"] for r in store.claimable_days(conn, args.year, args.period, claim_type)
-                ]
+            for row in rows:
+                year, period = row["period_year"], row["period_no"]
+                claim_type = ClaimType(row["claim_type"])
+                days = [r["day"] for r in store.claimable_days(conn, year, period, claim_type)]
                 live = store.lines_digest(days, claim_type)
                 if live != row["lines_digest"]:
                     logger.error(
                         "submit: %s %02d/%d changed since approval (%s -> %s); refusing",
                         claim_type.value,
-                        args.period,
-                        args.year,
+                        period,
+                        year,
                         row["lines_digest"],
                         live,
                     )
                     store.set_submission_state(
                         conn,
-                        args.year,
-                        args.period,
+                        year,
+                        period,
                         claim_type,
                         "awaiting_approval",
                         error="digest changed after approval",
@@ -292,7 +297,7 @@ def cmd_submit(cfg: Config, args) -> int:
                 # Written BEFORE the click. If the process dies mid-submit we
                 # must not be able to conclude it never happened and retry, as
                 # the portal offers no way to detect a duplicate.
-                store.set_submission_state(conn, args.year, args.period, claim_type, "in_flight")
+                store.set_submission_state(conn, year, period, claim_type, "in_flight")
                 try:
                     with open_session(
                         cfg.insite_host,
@@ -307,8 +312,8 @@ def cmd_submit(cfg: Config, args) -> int:
                     # from no submit, and the portal has no idempotency key.
                     store.set_submission_state(
                         conn,
-                        args.year,
-                        args.period,
+                        year,
+                        period,
                         claim_type,
                         "needs_reconciliation",
                         error=str(exc)[:400],
@@ -319,24 +324,22 @@ def cmd_submit(cfg: Config, args) -> int:
                     continue
 
                 if sent:
-                    store.set_submission_state(
-                        conn, args.year, args.period, claim_type, "submitted"
-                    )
+                    store.set_submission_state(conn, year, period, claim_type, "submitted")
                     store.mark_days_state(conn, days, DayState.SUBMITTED)
                     logger.info(
                         "submit: %s %02d/%d filed (%d days)",
                         claim_type.value,
-                        args.period,
-                        args.year,
+                        period,
+                        year,
                         len(days),
                     )
                 else:
-                    store.set_submission_state(conn, args.year, args.period, claim_type, "approved")
+                    store.set_submission_state(conn, year, period, claim_type, "approved")
                     logger.info(
                         "submit: DRY RUN -- %s %02d/%d left approved",
                         claim_type.value,
-                        args.period,
-                        args.year,
+                        period,
+                        year,
                     )
     return 0
 
@@ -362,8 +365,8 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_build)
 
     p = sub.add_parser("submit", help="send approved declarations to the manager")
-    p.add_argument("--year", type=int)
-    p.add_argument("--period", type=int)
+    p.add_argument("--year", type=int, help="with --period, file only this period")
+    p.add_argument("--period", type=int, help="month number, 1-12")
     p.set_defaults(func=cmd_submit)
 
     p = sub.add_parser("slackd", help="run the Slack Socket Mode handler")

@@ -308,6 +308,24 @@ def get_submission(
         return cur.fetchone()
 
 
+def approved_submissions(conn: psycopg.Connection) -> list[dict]:
+    """Every period a human has approved and that has not been filed yet.
+
+    Selected by state, never by date. `build` runs on the 28th and defaults to
+    the *previous* month, so a submit that woke on the 1st and worked out
+    "previous month" for itself would name the month after the one that was
+    approved, and file the wrong period into a portal with no undo. The
+    approval already names its period; this reads it back.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """SELECT * FROM submission
+               WHERE state = 'approved'
+               ORDER BY period_year, period_no, claim_type"""
+        )
+        return cur.fetchall()
+
+
 def approve_submission(
     conn: psycopg.Connection,
     year: int,
